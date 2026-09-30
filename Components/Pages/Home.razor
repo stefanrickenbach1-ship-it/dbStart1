@@ -1,0 +1,223 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using DbStart1.Data
+@using DbStart1.Models
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<TodoDbContext> DbFactory
+
+<PageTitle>Meine Aufgaben</PageTitle>
+
+<main class="todo-page">
+	<header class="site-header">
+		<a class="wordmark" href="/" aria-label="Aufgaben, Startseite">
+			<span class="wordmark-icon" aria-hidden="true">a.</span>
+			<span>aufgaben</span>
+		</a>
+		<span class="connection-label"><span class="connection-dot"></span> SQL SERVER</span>
+	</header>
+
+	<div class="workspace">
+		<section class="intro" aria-labelledby="page-title">
+			<p class="eyebrow">DEIN TAG, DEIN TEMPO</p>
+			<h1 id="page-title">Klarer Kopf.<br /><span>Ein Ding</span><br />nach dem andern.</h1>
+			<p class="intro-copy">Kleine Schritte bringen dich weiter. Was möchtest du heute erledigen?</p>
+			<div class="today-note"><span class="note-rule"></span><span>HEUTE IST EIN GUTER TAG, ANZUFANGEN.</span></div>
+		</section>
+
+		<section class="task-area" aria-labelledby="tasks-title">
+			<div class="task-heading">
+				<div>
+					<p class="eyebrow">DEINE LISTE</p>
+					<h2 id="tasks-title">Aufgaben <span class="task-count">@openCount</span></h2>
+				</div>
+				<span class="date-label">@DateTime.Now.ToString("dddd, d. MMMM", System.Globalization.CultureInfo.GetCultureInfo("de-DE"))</span>
+			</div>
+
+			<form class="task-form" @onsubmit="AddTodoAsync" @onsubmit:preventDefault>
+				<label class="visually-hidden" for="new-task">Neue Aufgabe</label>
+				<input id="new-task" @bind="newTitle" @bind:event="oninput" maxlength="160" placeholder="Was steht an?" autocomplete="off" />
+				<button class="add-button" type="submit" disabled="@(!CanAdd)" aria-label="Aufgabe hinzufügen" title="Aufgabe hinzufügen">+</button>
+			</form>
+
+			<div class="task-toolbar">
+				<div class="filters" role="group" aria-label="Aufgaben filtern">
+					<button type="button" class="filter-tab @(activeFilter == TodoFilter.All ? "is-active" : null)" @onclick="() => activeFilter = TodoFilter.All">Alle <span>@todos.Count</span></button>
+					<button type="button" class="filter-tab @(activeFilter == TodoFilter.Open ? "is-active" : null)" @onclick="() => activeFilter = TodoFilter.Open">Offen</button>
+					<button type="button" class="filter-tab @(activeFilter == TodoFilter.Completed ? "is-active" : null)" @onclick="() => activeFilter = TodoFilter.Completed">Erledigt</button>
+				</div>
+				<span class="remaining-label">@openCount offen</span>
+			</div>
+
+			@if (!string.IsNullOrWhiteSpace(errorMessage))
+			{
+				<p class="error-message" role="alert">@errorMessage</p>
+			}
+
+			@if (isLoading)
+			{
+				<p class="empty-state">Aufgaben werden geladen ...</p>
+			}
+			else if (!filteredTodos.Any())
+			{
+				<div class="empty-state">
+					<span class="empty-mark" aria-hidden="true">✓</span>
+					<p>@EmptyMessage</p>
+				</div>
+			}
+			else
+			{
+				<ul class="task-list">
+					@foreach (var todo in filteredTodos)
+					{
+						<li class="task-row @(todo.IsCompleted ? "is-completed" : null)" @key="todo.Id">
+							<button class="check-button" type="button" @onclick="() => ToggleTodoAsync(todo)" aria-label="@(todo.IsCompleted ? "Als offen markieren" : "Als erledigt markieren")" title="@(todo.IsCompleted ? "Als offen markieren" : "Als erledigt markieren")">
+								@if (todo.IsCompleted)
+								{
+									<span aria-hidden="true">✓</span>
+								}
+							</button>
+							<span class="task-title">@todo.Title</span>
+							<time class="task-date" datetime="@todo.CreatedAt.ToString("yyyy-MM-dd")">@todo.CreatedAt.ToLocalTime().ToString("dd.MM.")</time>
+							<button class="delete-button" type="button" @onclick="() => DeleteTodoAsync(todo)" aria-label="Aufgabe löschen: @todo.Title" title="Aufgabe löschen">×</button>
+						</li>
+					}
+				</ul>
+			}
+
+			<footer class="list-footer">
+				<span><span class="footer-dot"></span> Änderungen werden sofort gespeichert</span>
+				<span>GESAMT @todos.Count</span>
+			</footer>
+		</section>
+	</div>
+</main>
+
+@code {
+	private List<TodoItem> todos = [];
+	private string newTitle = string.Empty;
+	private string? errorMessage;
+	private bool isLoading = true;
+	private bool isSaving;
+	private TodoFilter activeFilter = TodoFilter.All;
+
+	private int openCount => todos.Count(todo => !todo.IsCompleted);
+	private bool CanAdd => !isSaving && !string.IsNullOrWhiteSpace(newTitle);
+	private string EmptyMessage => activeFilter switch
+	{
+		TodoFilter.Open => "Alles erledigt. Geniess den freien Kopf.",
+		TodoFilter.Completed => "Hier ist noch nichts abgehakt.",
+		_ => "Noch keine Aufgaben. Fang mit einer kleinen an."
+	};
+	private IEnumerable<TodoItem> filteredTodos => activeFilter switch
+	{
+		TodoFilter.Open => todos.Where(todo => !todo.IsCompleted),
+		TodoFilter.Completed => todos.Where(todo => todo.IsCompleted),
+		_ => todos
+	};
+
+	protected override async Task OnInitializedAsync()
+	{
+		await LoadTodosAsync();
+	}
+
+	private async Task LoadTodosAsync()
+	{
+		try
+		{
+			await using var db = await DbFactory.CreateDbContextAsync();
+			todos = await db.Todos
+				.OrderBy(todo => todo.IsCompleted)
+				.ThenByDescending(todo => todo.CreatedAt)
+				.ToListAsync();
+			errorMessage = null;
+		}
+		catch (Exception)
+		{
+			errorMessage = "Die Aufgaben konnten nicht geladen werden. Bitte prüfe die Verbindung zum SQL Server.";
+		}
+		finally
+		{
+			isLoading = false;
+		}
+	}
+
+	private async Task AddTodoAsync()
+	{
+		var title = newTitle.Trim();
+		if (title.Length == 0 || isSaving)
+		{
+			return;
+		}
+
+		isSaving = true;
+		try
+		{
+			await using var db = await DbFactory.CreateDbContextAsync();
+			var todo = new TodoItem { Title = title, CreatedAt = DateTime.UtcNow };
+			db.Todos.Add(todo);
+			await db.SaveChangesAsync();
+			todos.Insert(0, todo);
+			newTitle = string.Empty;
+			errorMessage = null;
+		}
+		catch (Exception)
+		{
+			errorMessage = "Die Aufgabe konnte nicht gespeichert werden. Bitte versuche es erneut.";
+		}
+		finally
+		{
+			isSaving = false;
+		}
+	}
+
+	private async Task ToggleTodoAsync(TodoItem todo)
+	{
+		try
+		{
+			await using var db = await DbFactory.CreateDbContextAsync();
+			var savedTodo = await db.Todos.FindAsync(todo.Id);
+			if (savedTodo is null)
+			{
+				todos.Remove(todo);
+				return;
+			}
+
+			savedTodo.IsCompleted = !savedTodo.IsCompleted;
+			await db.SaveChangesAsync();
+			todo.IsCompleted = savedTodo.IsCompleted;
+			errorMessage = null;
+		}
+		catch (Exception)
+		{
+			errorMessage = "Der Status konnte nicht geändert werden. Bitte versuche es erneut.";
+		}
+	}
+
+	private async Task DeleteTodoAsync(TodoItem todo)
+	{
+		try
+		{
+			await using var db = await DbFactory.CreateDbContextAsync();
+			var savedTodo = await db.Todos.FindAsync(todo.Id);
+			if (savedTodo is not null)
+			{
+				db.Todos.Remove(savedTodo);
+				await db.SaveChangesAsync();
+			}
+
+			todos.Remove(todo);
+			errorMessage = null;
+		}
+		catch (Exception)
+		{
+			errorMessage = "Die Aufgabe konnte nicht gelöscht werden. Bitte versuche es erneut.";
+		}
+	}
+
+	private enum TodoFilter
+	{
+		All,
+		Open,
+		Completed
+	}
+}
