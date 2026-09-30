@@ -2,6 +2,24 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "DB: Start SQL Server",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "cd \"${workspaceFolder}\" && docker compose up -d"
+    },
+    {
+      "name": "DB: Stop SQL Server",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "cd \"${workspaceFolder}\" && docker compose down"
+    },
+    {
+      "name": "DB + App: Start",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "cd \"${workspaceFolder}\" && docker compose up -d && dotnet run"
+    },
+    {
       "name": "DbStart1 (Debug)",
       "type": "dotnet",
       "request": "launch",
